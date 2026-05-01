@@ -1,177 +1,240 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useCallback } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useProject } from '../context/ProjectContext';
 import { useAuth } from '../context/AuthContext';
-import AddMemberModal from '../components/AddMemberModal';
+import { AddMemberModal } from '../components/AddMemberModal';
+import {
+  getTasks,
+  createTask,
+  updateTaskStatus,
+  deleteTask
+} from '../api/taskAPI';
 
-export const ProjectDetailsPage = () => {
+const ProjectDetailsPage = () => {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+
   const {
     currentProject,
     members,
-    isLoading,
-    error,
-    clearError,
     getProjectDetails,
     fetchProjectMembers,
     removeMember,
-    updateRole,
+    deleteProject,
+    isLoading,
+    error,
   } = useProject();
 
   const [showAddMember, setShowAddMember] = useState(false);
-  const [editingName, setEditingName] = useState(false);
-  const [editingDesc, setEditingDesc] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
-  useEffect(() => {
-    getProjectDetails(projectId);
-    fetchProjectMembers(projectId);
+  const [tasks, setTasks] = useState([]);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDesc, setNewTaskDesc] = useState('');
+
+  // ================================
+  // LOAD DATA
+  // ================================
+  const loadProject = useCallback(async () => {
+    try {
+      await getProjectDetails(projectId);
+      await fetchProjectMembers(projectId);
+    } catch (err) {
+      console.error(err);
+    }
   }, [projectId]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading project...</p>
-        </div>
-      </div>
-    );
-  }
+  const loadTasks = useCallback(async () => {
+    try {
+      const data = await getTasks(projectId);
+      setTasks(data.tasks || data);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [projectId]);
 
-  if (!currentProject) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Project not found</h2>
-          <button
-            onClick={() => navigate('/projects')}
-            className="text-blue-600 hover:text-blue-700"
-          >
-            Back to Projects
-          </button>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    loadProject();
+    loadTasks();
+  }, [loadProject, loadTasks]);
 
-  const isAdmin = members.some((m) => m.user_id === user.user_id && m.role === 'admin');
+  // ================================
+  // TASK HANDLERS (OPTIMIZED)
+  // ================================
+  const handleCreateTask = async () => {
+    if (!newTaskTitle.trim()) return;
 
+    try {
+      const newTask = await createTask(projectId, {
+        title: newTaskTitle,
+        description: newTaskDesc,
+      });
+
+      setTasks(prev => [newTask, ...prev]);
+
+      setNewTaskTitle('');
+      setNewTaskDesc('');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleStatusChange = async (taskId, status) => {
+    try {
+      const updated = await updateTaskStatus(projectId, taskId, status);
+
+      setTasks(prev =>
+        prev.map(t => (t.id === taskId ? updated : t))
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    try {
+      await deleteTask(projectId, taskId);
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // ================================
+  // MEMBER ACTIONS
+  // ================================
+  const handleRemoveMember = async (memberId) => {
+    if (!window.confirm('Remove this member?')) return;
+
+    await removeMember(projectId, memberId);
+    fetchProjectMembers(projectId);
+  };
+
+  const handleDeleteProject = async () => {
+    await deleteProject(projectId);
+    navigate('/projects');
+  };
+
+  const isAdmin = members.find(
+    m => m.user_id === user?.user_id && m.role === 'admin'
+  );
+
+  // ================================
+  // UI
+  // ================================
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex items-center justify-between">
-          <div>
-            <button
-              onClick={() => navigate('/projects')}
-              className="text-blue-600 hover:text-blue-700 mb-2"
-            >
-              ← Back to Projects
-            </button>
-            <h1 className="text-3xl font-bold text-gray-900">{currentProject.name}</h1>
-          </div>
-        </div>
-      </div>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-red-600">{error}</p>
-            <button
-              onClick={clearError}
-              className="text-red-600 hover:text-red-700 text-sm mt-2"
-            >
-              Dismiss
-            </button>
-          </div>
+      {/* HEADER */}
+      <div className="bg-white shadow-sm p-6">
+        <Link to="/projects" className="text-sm text-gray-500">← Projects</Link>
+
+        <h1 className="text-2xl font-bold mt-2">
+          {currentProject?.name}
+        </h1>
+
+        {/* ✅ DESCRIPTION RESTORED */}
+        {currentProject?.description && (
+          <p className="text-gray-500 mt-1">
+            {currentProject.description}
+          </p>
         )}
+      </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Project Details */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Project Details</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <p className="text-gray-600">
-                    {currentProject.description || 'No description provided'}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Created
-                  </label>
-                  <p className="text-gray-600">
-                    {new Date(currentProject.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+      <div className="max-w-6xl mx-auto p-6">
 
-          {/* Members Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">Team Members</h2>
-              {isAdmin && (
+        {/* CREATE TASK */}
+        <div className="bg-white p-4 rounded mb-6">
+          <h3 className="font-semibold mb-3">Create Task</h3>
+
+          <input
+            value={newTaskTitle}
+            onChange={(e) => setNewTaskTitle(e.target.value)}
+            placeholder="Task title"
+            className="border p-2 w-full mb-2"
+          />
+
+          <textarea
+            value={newTaskDesc}
+            onChange={(e) => setNewTaskDesc(e.target.value)}
+            placeholder="Task description"
+            className="border p-2 w-full mb-2"
+          />
+
+          <button
+            onClick={handleCreateTask}
+            className="bg-blue-600 text-white px-4 py-2 rounded"
+          >
+            Add Task
+          </button>
+        </div>
+
+        {/* TASK LIST */}
+        <div className="bg-white p-4 rounded">
+          <h3 className="font-semibold mb-3">Tasks</h3>
+
+          {tasks.map(task => (
+            <div key={task.id} className="border p-3 mb-3 rounded">
+
+              <div className="flex justify-between">
+                <div>
+                  <p className="font-medium">{task.title}</p>
+
+                  {/* ✅ DESCRIPTION RESTORED */}
+                  {task.description && (
+                    <p className="text-sm text-gray-500">
+                      {task.description}
+                    </p>
+                  )}
+                </div>
+
                 <button
-                  onClick={() => setShowAddMember(true)}
-                  className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition"
+                  onClick={() => handleDeleteTask(task.id)}
+                  className="text-red-500"
                 >
-                  + Add
+                  Delete
                 </button>
-              )}
+              </div>
+
+              <select
+                value={task.status}
+                onChange={(e) =>
+                  handleStatusChange(task.id, e.target.value)
+                }
+                className="mt-2 border p-1"
+              >
+                <option value="todo">Todo</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
             </div>
-            <div className="space-y-3">
-              {members.length === 0 ? (
-                <p className="text-gray-600 text-sm">No members yet</p>
-              ) : (
-                members.map((member) => (
-                  <div
-                    key={member.user_id}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900">{member.name}</p>
-                      <p className="text-sm text-gray-600">{member.email}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="inline-block px-2 py-1 text-xs rounded bg-blue-100 text-blue-800">
-                        {member.role}
-                      </span>
-                      {isAdmin && member.user_id !== user.user_id && (
-                        <button
-                          onClick={() => removeMember(projectId, member.user_id)}
-                          className="text-red-600 hover:text-red-700 text-sm"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Add Member Modal */}
+      {/* MODALS */}
       {showAddMember && (
         <AddMemberModal
           projectId={projectId}
           onClose={() => setShowAddMember(false)}
-          onSuccess={() => {
-            setShowAddMember(false);
-            fetchProjectMembers(projectId);
-          }}
+          onSuccess={() => fetchProjectMembers(projectId)}
         />
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white p-6 rounded">
+            <p>Delete project?</p>
+
+            <button
+              onClick={handleDeleteProject}
+              className="bg-red-600 text-white px-4 py-2 mt-2"
+            >
+              Confirm
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
