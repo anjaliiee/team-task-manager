@@ -1,241 +1,292 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useProject } from '../context/ProjectContext';
-import { useAuth } from '../context/AuthContext';
-import { AddMemberModal } from '../components/AddMemberModal';
+import React, { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+
 import {
-  getTasks,
+  getProjectDetails,
+  getProjectMembers,
   createTask,
   updateTaskStatus,
-  deleteTask
-} from '../api/taskAPI';
+  deleteTask,
+  inviteMember,
+  getProjectTasks
+} from '../api/projectAPI';
+
+const statusMap = {
+  todo: "Todo",
+  in_progress: "In Progress",
+  completed: "Completed"
+};
+
+const columns = ['todo', 'in_progress', 'completed'];
 
 const ProjectDetailsPage = () => {
   const { projectId } = useParams();
-  const navigate = useNavigate();
-  const { user } = useAuth();
 
-  const {
-    currentProject,
-    members,
-    getProjectDetails,
-    fetchProjectMembers,
-    removeMember,
-    deleteProject,
-    isLoading,
-    error,
-  } = useProject();
-
-  const [showAddMember, setShowAddMember] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
-
+  const [project, setProject] = useState({});
+  const [members, setMembers] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const [inviteName, setInviteName] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [selectedUser, setSelectedUser] = useState('');
+  const [dueDate, setDueDate] = useState('');
 
-  // ================================
-  // LOAD DATA
-  // ================================
-  const loadProject = useCallback(async () => {
+  // ✅ DEFINE BEFORE useEffect
+  const loadData = async () => {
     try {
-      await getProjectDetails(projectId);
-      await fetchProjectMembers(projectId);
+      setLoading(true);
+
+      const [p, m, t] = await Promise.all([
+        getProjectDetails(projectId),
+        getProjectMembers(projectId),
+        getProjectTasks(projectId)
+      ]);
+
+      setProject(p || {});
+      setMembers(m || []);
+      setTasks(t || []);
     } catch (err) {
-      console.error(err);
-    }
-  }, [projectId]);
-
-  const loadTasks = useCallback(async () => {
-    try {
-      const data = await getTasks(projectId);
-      setTasks(data.tasks || data);
-    } catch (err) {
-      console.error(err);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    loadProject();
-    loadTasks();
-  }, [loadProject, loadTasks]);
-
-  // ================================
-  // TASK HANDLERS (OPTIMIZED)
-  // ================================
-  const handleCreateTask = async () => {
-    if (!newTaskTitle.trim()) return;
-
-    try {
-      const newTask = await createTask(projectId, {
-        title: newTaskTitle,
-        description: newTaskDesc,
-      });
-
-      setTasks(prev => [newTask, ...prev]);
-
-      setNewTaskTitle('');
-      setNewTaskDesc('');
-    } catch (err) {
-      console.error(err);
+      console.error("Load error:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleStatusChange = async (taskId, status) => {
+  // ✅ THEN USE
+  useEffect(() => {
+    if (projectId) loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // INVITE
+  const handleInvite = async () => {
+    if (!inviteEmail) return;
+
+    await inviteMember(projectId, {
+      name: inviteName,
+      email: inviteEmail
+    });
+
+    setInviteName('');
+    setInviteEmail('');
+    loadData();
+  };
+
+  // CREATE TASK
+  const handleCreateTask = async () => {
+    if (!newTaskTitle) return;
+
+    const newTask = await createTask(projectId, {
+      title: newTaskTitle,
+      description: newTaskDesc,
+      assignee_id: selectedUser || null,
+      due_date: dueDate || null
+    });
+
+    setTasks(prev => [newTask, ...prev]);
+
+    setNewTaskTitle('');
+    setNewTaskDesc('');
+    setSelectedUser('');
+    setDueDate('');
+  };
+
+  // DELETE
+  const handleDeleteTask = async (taskId) => {
+    await deleteTask(projectId, taskId);
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+  };
+
+  // DRAG DROP
+  const onDragEnd = async (result) => {
+    if (!result.destination) return;
+
+    const taskId = String(result.draggableId);
+    const newStatus = result.destination.droppableId;
+
     try {
-      const updated = await updateTaskStatus(projectId, taskId, status);
+      await updateTaskStatus(projectId, taskId, newStatus);
 
       setTasks(prev =>
-        prev.map(t => (t.id === taskId ? updated : t))
+        prev.map(t =>
+          String(t.id) === taskId
+            ? { ...t, status: newStatus }
+            : t
+        )
       );
     } catch (err) {
-      console.error(err);
+      console.error("Drag update failed:", err);
     }
   };
 
-  const handleDeleteTask = async (taskId) => {
-    try {
-      await deleteTask(projectId, taskId);
-      setTasks(prev => prev.filter(t => t.id !== taskId));
-    } catch (err) {
-      console.error(err);
-    }
+  const grouped = {
+    todo: tasks.filter(t => t.status === 'todo'),
+    in_progress: tasks.filter(t => t.status === 'in_progress'),
+    completed: tasks.filter(t => t.status === 'completed')
   };
 
-  // ================================
-  // MEMBER ACTIONS
-  // ================================
-  const handleRemoveMember = async (memberId) => {
-    if (!window.confirm('Remove this member?')) return;
-
-    await removeMember(projectId, memberId);
-    fetchProjectMembers(projectId);
-  };
-
-  const handleDeleteProject = async () => {
-    await deleteProject(projectId);
-    navigate('/projects');
-  };
-
-  const isAdmin = members.find(
-    m => m.user_id === user?.user_id && m.role === 'admin'
-  );
-
-  // ================================
-  // UI
-  // ================================
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="p-6">
 
       {/* HEADER */}
-      <div className="bg-white shadow-sm p-6">
-        <Link to="/projects" className="text-sm text-gray-500">← Projects</Link>
+      <h1 className="text-2xl font-semibold mb-6">
+        {project?.name || 'Project'}
+      </h1>
 
-        <h1 className="text-2xl font-bold mt-2">
-          {currentProject?.name}
-        </h1>
+      {/* FORMS */}
+      <div className="grid grid-cols-2 gap-6 mb-8">
 
-        {/* ✅ DESCRIPTION RESTORED */}
-        {currentProject?.description && (
-          <p className="text-gray-500 mt-1">
-            {currentProject.description}
-          </p>
-        )}
-      </div>
+        {/* INVITE */}
+        <div className="bg-[#1A1D27] border border-[#2A2D3A] p-5 rounded-xl">
+          <h3 className="mb-4 text-sm text-[#8B8FA8]">Add Member</h3>
 
-      <div className="max-w-6xl mx-auto p-6">
+          <input
+            placeholder="Name"
+            value={inviteName}
+            onChange={(e) => setInviteName(e.target.value)}
+            className="w-full mb-3 p-2 bg-[#0F1117] border border-[#2A2D3A] rounded"
+          />
+
+          <input
+            placeholder="Email"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            className="w-full mb-3 p-2 bg-[#0F1117] border border-[#2A2D3A] rounded"
+          />
+
+          <button
+            onClick={handleInvite}
+            className="bg-[#6C56EB] px-4 py-2 rounded text-sm"
+          >
+            Invite
+          </button>
+        </div>
 
         {/* CREATE TASK */}
-        <div className="bg-white p-4 rounded mb-6">
-          <h3 className="font-semibold mb-3">Create Task</h3>
+        <div className="bg-[#1A1D27] border border-[#2A2D3A] p-5 rounded-xl">
+          <h3 className="mb-4 text-sm text-[#8B8FA8]">Create Task</h3>
 
           <input
             value={newTaskTitle}
             onChange={(e) => setNewTaskTitle(e.target.value)}
-            placeholder="Task title"
-            className="border p-2 w-full mb-2"
+            placeholder="Title"
+            className="w-full mb-2 p-2 bg-[#0F1117] border border-[#2A2D3A] rounded"
           />
 
           <textarea
             value={newTaskDesc}
             onChange={(e) => setNewTaskDesc(e.target.value)}
-            placeholder="Task description"
-            className="border p-2 w-full mb-2"
+            placeholder="Description"
+            className="w-full mb-2 p-2 bg-[#0F1117] border border-[#2A2D3A] rounded"
+          />
+
+          <select
+            value={selectedUser}
+            onChange={(e) => setSelectedUser(e.target.value)}
+            className="w-full mb-2 p-2 bg-[#0F1117] border border-[#2A2D3A] rounded"
+          >
+            <option value="">Assign user</option>
+            {members.map(m => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+
+          <input
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            className="w-full mb-3 p-2 bg-[#0F1117] border border-[#2A2D3A] rounded"
           />
 
           <button
             onClick={handleCreateTask}
-            className="bg-blue-600 text-white px-4 py-2 rounded"
+            className="bg-[#6C56EB] px-4 py-2 rounded text-sm"
           >
             Add Task
           </button>
         </div>
-
-        {/* TASK LIST */}
-        <div className="bg-white p-4 rounded">
-          <h3 className="font-semibold mb-3">Tasks</h3>
-
-          {tasks.map(task => (
-            <div key={task.id} className="border p-3 mb-3 rounded">
-
-              <div className="flex justify-between">
-                <div>
-                  <p className="font-medium">{task.title}</p>
-
-                  {/* ✅ DESCRIPTION RESTORED */}
-                  {task.description && (
-                    <p className="text-sm text-gray-500">
-                      {task.description}
-                    </p>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => handleDeleteTask(task.id)}
-                  className="text-red-500"
-                >
-                  Delete
-                </button>
-              </div>
-
-              <select
-                value={task.status}
-                onChange={(e) =>
-                  handleStatusChange(task.id, e.target.value)
-                }
-                className="mt-2 border p-1"
-              >
-                <option value="todo">Todo</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-          ))}
-        </div>
       </div>
 
-      {/* MODALS */}
-      {showAddMember && (
-        <AddMemberModal
-          projectId={projectId}
-          onClose={() => setShowAddMember(false)}
-          onSuccess={() => fetchProjectMembers(projectId)}
-        />
-      )}
+      {/* 🔥 KANBAN — ALWAYS MOUNTED */}
+      <DragDropContext onDragEnd={onDragEnd}>
+        <div className="grid grid-cols-3 gap-6">
 
-      {deleteConfirm && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white p-6 rounded">
-            <p>Delete project?</p>
+          {columns.map(status => (
+            <Droppable droppableId={status} key={status}>
+              {(provided, snapshot) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  className={`bg-[#1A1D27] border border-[#2A2D3A] rounded-xl p-4 min-h-[200px] transition
+                    ${snapshot.isDraggingOver ? 'border-[#6C56EB] bg-[#181B24]' : ''}`}
+                >
+                  <h3 className="mb-4 font-medium text-sm text-[#8B8FA8]">
+                    {statusMap[status]}
+                  </h3>
 
-            <button
-              onClick={handleDeleteProject}
-              className="bg-red-600 text-white px-4 py-2 mt-2"
-            >
-              Confirm
-            </button>
-          </div>
+                  {/* ⏳ Loading inside columns (not blocking DnD) */}
+                  {loading && (
+                    <p className="text-xs text-[#5A5E72]">Loading...</p>
+                  )}
+
+                  {!loading && grouped[status].length === 0 && (
+                    <p className="text-xs text-[#5A5E72]">No tasks</p>
+                  )}
+
+                  {!loading && grouped[status].map((task, index) => (
+                    <Draggable
+                      key={task.id}
+                      draggableId={String(task.id)}
+                      index={index}
+                    >
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          className={`bg-[#0F1117] border border-[#2A2D3A] p-3 mb-3 rounded-lg transition
+                            ${snapshot.isDragging
+                              ? 'opacity-80 shadow-lg border-[#6C56EB]'
+                              : 'hover:border-[#6C56EB]'}`}
+                        >
+                          <p className="font-medium text-sm mb-1">
+                            {task.title}
+                          </p>
+
+                          <p className="text-xs text-[#5A5E72]">
+                            {task.assignee_name || 'Unassigned'}
+                          </p>
+
+                          {task.due_date && (
+                            <p className="text-xs text-red-400">
+                              Due: {task.due_date}
+                            </p>
+                          )}
+
+                          <button
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="text-red-500 text-xs mt-2 hover:underline"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          ))}
+
         </div>
-      )}
+      </DragDropContext>
     </div>
   );
 };

@@ -3,6 +3,24 @@ import * as projectAPI from '../api/projectAPI';
 
 export const ProjectContext = createContext(null);
 
+/**
+ * Helper: Extract error message from various error types
+ */
+const getErrorMessage = (err) => {
+  if (typeof err === 'string') return err;
+  if (err?.message) return err.message;
+  if (err?.error) return err.error;
+  if (err?.msg) return err.msg;
+  if (typeof err === 'object') {
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return 'An error occurred';
+    }
+  }
+  return 'An error occurred';
+};
+
 export const ProjectProvider = ({ children }) => {
   const [projects, setProjects] = useState([]);
   const [currentProject, setCurrentProject] = useState(null);
@@ -21,7 +39,7 @@ export const ProjectProvider = ({ children }) => {
       setProjects(data);
       return data;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Failed to fetch projects';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -40,7 +58,7 @@ export const ProjectProvider = ({ children }) => {
       setProjects((prev) => [...prev, newProject]);
       return newProject;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Failed to create project';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -59,7 +77,7 @@ export const ProjectProvider = ({ children }) => {
       setCurrentProject(project);
       return project;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Failed to fetch project';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -83,7 +101,7 @@ export const ProjectProvider = ({ children }) => {
       }
       return updated;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Failed to update project';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -105,7 +123,7 @@ export const ProjectProvider = ({ children }) => {
       }
       return true;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Failed to delete project';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -124,7 +142,7 @@ export const ProjectProvider = ({ children }) => {
       setMembers(data);
       return data;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Failed to fetch members';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -143,7 +161,7 @@ export const ProjectProvider = ({ children }) => {
       setMembers((prev) => [...prev, newMember]);
       return newMember;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Failed to add member';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -162,7 +180,7 @@ export const ProjectProvider = ({ children }) => {
       setMembers((prev) => prev.filter((m) => m.user_id !== userId));
       return true;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Failed to remove member';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -183,7 +201,7 @@ export const ProjectProvider = ({ children }) => {
       );
       return updated;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Failed to update role';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {

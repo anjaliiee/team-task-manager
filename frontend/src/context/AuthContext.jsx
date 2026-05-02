@@ -3,6 +3,24 @@ import * as authAPI from '../api/authAPI';
 
 export const AuthContext = createContext(null);
 
+/**
+ * Helper: Extract error message from various error types
+ */
+const getErrorMessage = (err) => {
+  if (typeof err === 'string') return err;
+  if (err?.message) return err.message;
+  if (err?.error) return err.error;
+  if (err?.msg) return err.msg;
+  if (typeof err === 'object') {
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return 'An error occurred';
+    }
+  }
+  return 'An error occurred';
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
@@ -34,7 +52,7 @@ export const AuthProvider = ({ children }) => {
       setUser(userData);
       return userData;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Signup failed';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -54,7 +72,7 @@ export const AuthProvider = ({ children }) => {
       setUser(userData);
       return userData;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Login failed';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -94,7 +112,7 @@ export const AuthProvider = ({ children }) => {
       setUser(updatedUser);
       return updatedUser;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Update failed';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -112,7 +130,7 @@ export const AuthProvider = ({ children }) => {
       await authAPI.changePassword(user.user_id, currentPassword, newPassword);
       return true;
     } catch (err) {
-      const errorMessage = err.error || err.message || 'Password change failed';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       throw err;
     } finally {

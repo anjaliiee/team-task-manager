@@ -1,121 +1,147 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { getAllProjects, createProject } from '../api/projectAPI';
 import { useNavigate } from 'react-router-dom';
-import { useProject } from '../context/ProjectContext';
-import CreateProjectModal from '../components/CreateProjectModal';
 
-export const ProjectsPage = () => {
+const ProjectsPage = () => {
+  const [projects, setProjects] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [projectName, setProjectName] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
+
   const navigate = useNavigate();
-  const { projects, isLoading, error, clearError, fetchProjects, deleteProject } = useProject();
-  const [showCreateModal, setShowCreateModal] = useState(false);
 
+  // LOAD PROJECTS
   useEffect(() => {
-    fetchProjects();
+    loadProjects();
   }, []);
 
-  const handleDelete = async (projectId) => {
-    if (window.confirm('Are you sure you want to delete this project?')) {
-      try {
-        await deleteProject(projectId);
-      } catch (err) {
-        console.error('Delete error:', err);
-      }
+  const loadProjects = async () => {
+    try {
+      const data = await getAllProjects();
+      setProjects(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Load projects error:", err);
+    }
+  };
+
+  // CREATE PROJECT
+  const handleCreateProject = async () => {
+    if (!projectName.trim()) {
+      alert("Project name is required");
+      return;
+    }
+
+    try {
+      await createProject({
+        name: projectName.trim(),
+        description: projectDescription.trim(),
+      });
+
+      // reset fields
+      setProjectName('');
+      setProjectDescription('');
+      setShowModal(false);
+
+      loadProjects();
+    } catch (err) {
+      console.error("Create project error:", err);
+      alert("Failed to create project");
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex justify-between items-center">
-            <h1 className="text-3xl font-bold text-gray-900">Projects</h1>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
-            >
-              + New Project
-            </button>
-          </div>
-        </div>
+    <>
+      {/* HEADER */}
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-4xl font-bold">Projects</h1>
+
+        <button
+          onClick={() => setShowModal(true)}
+          className="bg-gradient-to-r from-primary to-secondary px-6 py-3 rounded-xl shadow-lg hover:scale-105 transition"
+        >
+          + New Project
+        </button>
       </div>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-red-600">{error}</p>
-            <button
-              onClick={clearError}
-              className="text-red-600 hover:text-red-700 text-sm mt-2"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
+      {/* EMPTY STATE */}
+      {projects.length === 0 && (
+        <div className="text-center text-gray-400 mt-20">
+          No projects yet. Create your first one 🚀
+        </div>
+      )}
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading projects...</p>
+      {/* PROJECT LIST */}
+      <div className="grid grid-cols-3 gap-6">
+        {projects.map((project) => (
+          <div
+            key={project.id}
+            onClick={() => navigate(`/projects/${project.id}`)}
+            className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-5 cursor-pointer hover:scale-105 transition"
+          >
+            <h2 className="text-xl font-semibold">
+              {project.name}
+            </h2>
+
+            <p className="text-gray-400 text-sm mt-2">
+              {project.description || 'No description'}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* 🔥 MODAL */}
+      {showModal && (
+        <div
+          className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-50"
+          onClick={() => setShowModal(false)} // click outside to close
+        >
+          <div
+            className="bg-[#2a2a40] border border-white/10 rounded-2xl p-6 w-[420px] shadow-2xl"
+            onClick={(e) => e.stopPropagation()} // prevent closing when clicking inside
+          >
+            <h2 className="text-xl font-semibold mb-4">
+              Create New Project
+            </h2>
+
+            {/* NAME INPUT */}
+            <input
+              type="text"
+              placeholder="Project name..."
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
+              className="w-full p-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 mb-4 outline-none focus:ring-2 focus:ring-primary"
+            />
+
+            {/* DESCRIPTION INPUT */}
+            <textarea
+              placeholder="Project description (optional)..."
+              value={projectDescription}
+              onChange={(e) => setProjectDescription(e.target.value)}
+              rows={3}
+              className="w-full p-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 mb-4 outline-none focus:ring-2 focus:ring-primary resize-none"
+            />
+
+            {/* ACTION BUTTONS */}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowModal(false)}
+                className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleCreateProject}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-primary to-secondary hover:scale-105 transition"
+              >
+                Create
+              </button>
             </div>
           </div>
-        ) : projects.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center">
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No projects yet</h3>
-            <p className="text-gray-600 mb-4">Get started by creating your first project.</p>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition"
-            >
-              Create First Project
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projects.map((project) => (
-              <div
-                key={project.id}
-                className="bg-white rounded-lg shadow hover:shadow-lg transition cursor-pointer"
-                onClick={() => navigate(`/projects/${project.id}`)}
-              >
-                <div className="p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">{project.name}</h3>
-                  <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                    {project.description || 'No description'}
-                  </p>
-                  <div className="flex items-center justify-between pt-4 border-t">
-                    <span className="text-xs text-gray-500">
-                      Created {new Date(project.created_at).toLocaleDateString()}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(project.id);
-                      }}
-                      className="text-red-600 hover:text-red-700 text-sm font-medium"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Create Project Modal */}
-      {showCreateModal && (
-        <CreateProjectModal
-          onClose={() => setShowCreateModal(false)}
-          onSuccess={() => {
-            setShowCreateModal(false);
-            fetchProjects();
-          }}
-        />
+        </div>
       )}
-    </div>
+    </>
   );
 };
 
