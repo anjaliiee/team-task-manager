@@ -2,11 +2,6 @@
 -- Version: 1.0
 -- Date: 2026-04-30
 
--- Create Database
-DROP DATABASE IF EXISTS team_task_manager;
-CREATE DATABASE team_task_manager;
-USE team_task_manager;
-
 -- ============================================
 -- USERS TABLE
 -- ============================================
