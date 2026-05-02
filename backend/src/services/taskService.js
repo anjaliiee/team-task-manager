@@ -12,42 +12,80 @@ const createTask = (taskData, callback) => {
     VALUES (?, ?, ?, ?, ?, 'todo')
   `;
 
-  pool.query(sql, [title, description, project_id, assignee_id, due_date], (error, results) => {
+  pool.query(
+    sql,
+    [title, description, project_id, assignee_id, due_date],
+    (error, results) => {
+      if (error) {
+        logger.error('createTask error', { error: error.message });
+        return callback(error, null);
+      }
+
+      getTaskById(results.insertId, callback); // 🔥 return full task
+    }
+  );
+};
+
+/**
+ * GET TASK BY ID
+ */
+const getTaskById = (id, callback) => {
+  const sql = `
+    SELECT t.*, u.name AS assignee_name
+    FROM tasks t
+    LEFT JOIN users u ON t.assignee_id = u.id
+    WHERE t.id = ? AND t.deleted_at IS NULL
+  `;
+
+  pool.query(sql, [id], (error, results) => {
     if (error) {
-      logger.error('createTask error', { error: error.message });
+      logger.error('getTaskById error', { error: error.message });
       return callback(error, null);
     }
 
-    callback(null, {
-      id: results.insertId,
-      title,
-      description,
-      project_id,
-      assignee_id,
-      due_date,
-      status: 'todo'
-    });
+    callback(null, results[0] || null);
   });
 };
 
 /**
- * GET TASKS
+ * GET PROJECT TASKS
  */
 const getProjectTasks = (project_id, filters = {}, callback) => {
-  let sql = 'SELECT * FROM tasks WHERE project_id = ? AND deleted_at IS NULL';
+  let sql = `
+    SELECT t.*, u.name AS assignee_name
+    FROM tasks t
+    LEFT JOIN users u ON t.assignee_id = u.id
+    WHERE t.project_id = ? AND t.deleted_at IS NULL
+  `;
+
   const values = [project_id];
 
   if (filters.status) {
-    sql += ' AND status = ?';
+    sql += ' AND t.status = ?';
     values.push(filters.status);
   }
 
   if (filters.assignee_id) {
-    sql += ' AND assignee_id = ?';
+    sql += ' AND t.assignee_id = ?';
     values.push(filters.assignee_id);
   }
 
-  sql += ' ORDER BY created_at DESC';
+  if (filters.due_date_from) {
+    sql += ' AND t.due_date >= ?';
+    values.push(filters.due_date_from);
+  }
+
+  if (filters.due_date_to) {
+    sql += ' AND t.due_date <= ?';
+    values.push(filters.due_date_to);
+  }
+
+  // 🔥 SAFE SORTING
+  const allowedSort = ['due_date', 'created_at', 'status'];
+  const sort = allowedSort.includes(filters.sort) ? filters.sort : 'created_at';
+  const order = filters.order === 'desc' ? 'DESC' : 'ASC';
+
+  sql += ` ORDER BY t.${sort} ${order}`;
 
   pool.query(sql, values, (error, results) => {
     if (error) {
@@ -66,8 +104,8 @@ const updateTask = (id, taskData, callback) => {
   const { title, description, assignee_id, due_date } = taskData;
 
   const sql = `
-    UPDATE tasks SET 
-      title = ?, description = ?, assignee_id = ?, due_date = ?, updated_at = NOW()
+    UPDATE tasks
+    SET title = ?, description = ?, assignee_id = ?, due_date = ?, updated_at = NOW()
     WHERE id = ?
   `;
 
@@ -77,12 +115,32 @@ const updateTask = (id, taskData, callback) => {
       return callback(error, null);
     }
 
-    callback(null, { id, ...taskData });
+    getTaskById(id, callback); // 🔥 return updated task
   });
 };
 
 /**
- * DELETE TASK (soft delete)
+ * UPDATE TASK STATUS
+ */
+const updateTaskStatus = (id, status, callback) => {
+  const sql = `
+    UPDATE tasks 
+    SET status = ?, updated_at = NOW() 
+    WHERE id = ?
+  `;
+
+  pool.query(sql, [status, id], (error) => {
+    if (error) {
+      logger.error('updateTaskStatus error', { error: error.message });
+      return callback(error, null);
+    }
+
+    getTaskById(id, callback); // 🔥 return full task
+  });
+};
+
+/**
+ * DELETE TASK (SOFT DELETE)
  */
 const deleteTask = (id, callback) => {
   const sql = 'UPDATE tasks SET deleted_at = NOW() WHERE id = ?';
@@ -93,13 +151,45 @@ const deleteTask = (id, callback) => {
       return callback(error, null);
     }
 
-    callback(null);
+    callback(null, { id });
+  });
+};
+
+/**
+ * GET OVERDUE TASKS (OPTIONAL BUT POWERFUL)
+ */
+const getOverdueTasks = (user_id, callback) => {
+  const sql = `
+    SELECT t.*, u.name AS assignee_name
+    FROM tasks t
+    LEFT JOIN users u ON t.assignee_id = u.id
+    WHERE 
+      (t.assignee_id = ? OR EXISTS (
+        SELECT 1 FROM project_members pm
+        WHERE pm.project_id = t.project_id AND pm.user_id = ? AND pm.role = 'admin'
+      ))
+      AND t.due_date < CURDATE()
+      AND t.status != 'completed'
+      AND t.deleted_at IS NULL
+    ORDER BY t.due_date ASC
+  `;
+
+  pool.query(sql, [user_id, user_id], (error, results) => {
+    if (error) {
+      logger.error('getOverdueTasks error', { error: error.message });
+      return callback(error, null);
+    }
+
+    callback(null, results || []);
   });
 };
 
 module.exports = {
   createTask,
+  getTaskById,
   getProjectTasks,
   updateTask,
-  deleteTask
+  updateTaskStatus,
+  deleteTask,
+  getOverdueTasks,
 };

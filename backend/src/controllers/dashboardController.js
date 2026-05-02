@@ -7,34 +7,35 @@ const { HTTP_STATUS } = require('../config/constants');
  * GET /api/dashboard/summary
  */
 exports.getDashboardSummary = (req, res) => {
-  const user_id = req.user.id;
+  const userId = req.user.user_id;
 
   const sql = `
-    SELECT t.status, COUNT(*) as count
-    FROM tasks t
-    JOIN project_members pm ON pm.project_id = t.project_id
-    WHERE pm.user_id = ?
-    AND t.deleted_at IS NULL
-    GROUP BY t.status
+    SELECT
+      SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) AS todo,
+      SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
+      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed
+    FROM tasks
+    WHERE deleted_at IS NULL
+      AND (
+        assignee_id = ?
+        OR project_id IN (
+          SELECT project_id FROM project_members WHERE user_id = ?
+        )
+      )
   `;
 
-  pool.query(sql, [user_id], (err, results) => {
+  pool.query(sql, [userId, userId], (err, results) => {
     if (err) {
-      logger.error('getDashboardSummary error', err);
-      return sendError(res, 500, 'DB_ERROR', err.message);
+      return res.status(500).json({ message: err.message });
     }
 
-    const summary = {
-      todo: 0,
-      in_progress: 0,
-      completed: 0,
-    };
-
-    results.forEach((r) => {
-      summary[r.status] = r.count;
+    res.json({
+      data: results[0] || {
+        todo: 0,
+        in_progress: 0,
+        completed: 0
+      }
     });
-
-    sendSuccess(res, summary, 'Dashboard summary fetched');
   });
 };
 
